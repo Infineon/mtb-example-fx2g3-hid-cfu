@@ -6,7 +6,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * SPDX-License-Identifier: Apache-2.0
@@ -115,9 +115,13 @@ void vPortSetupTimerInterrupt( void )
 
     /* Start the SysTick timer with a period of 1 ms. */
     Cy_SysTick_SetClockSource (CY_SYSTICK_CLOCK_SOURCE_CLK_CPU);
+#if CY_CPU_CORTEX_M4
     Cy_SysTick_SetReload(Cy_SysClk_ClkFastGetFrequency() / 1000U);
-    Cy_SysTick_Clear ();
-    Cy_SysTick_Enable ();
+#else
+    Cy_SysTick_SetReload(Cy_SysClk_ClkSlowGetFrequency() / 1000U);
+#endif /* CY_CPU_CORTEX_M4 */
+    Cy_SysTick_Clear();
+    Cy_SysTick_Enable();
 }
 
 #if DEBUG_INFRA_EN
@@ -412,9 +416,7 @@ void Cy_USB_USBHSInit(void)
     dbgCfg.bufSize = LOGBUF_RAM_SZ;
     dbgCfg.dbgIntfce = CY_DEBUG_INTFCE_UART_SCB4;
     dbgCfg.printNow = true;
-
 #endif /* USBFS_LOGS_ENABLE */
-
 #endif /* DEBUG_INFRA_EN */
 }
 
@@ -456,6 +458,9 @@ bool Cy_Echo_HbDmaInit(void)
         return false;
     }
 
+    /* Register the USB stack context with the HBW DMA manager. */
+    Cy_HBDma_Mgr_RegisterUsbContext(&HBW_MgrCtxt, &usbdCtxt);
+
     return true;
 }
 
@@ -467,20 +472,8 @@ bool Cy_Echo_HbDmaInit(void)
 void
 OutEpDma_ISR (uint8_t endpNum)
 {
-#if FX_CFU
-    if(endpNum!=BULK_OUT_ENDPOINT_2){
-#endif /* FX_CFU */
-        DBG_APP_TRACE("...ISR...OutEpDma...endpNum:0x%x\r\n",endpNum);
-        if (endpNum == 0x00) {
-            Cy_USB_AppClearCpuDmaInterrupt(&appCtxt, endpNum, CY_USB_ENDP_DIR_OUT);
-            Cy_USB_Endp0ReadComplete((void *)&appCtxt);
-        } else {
-            Cy_USB_AppClearCpuDmaInterrupt(&appCtxt, endpNum, CY_USB_ENDP_DIR_OUT);
-            Cy_USB_EchoDeviceDmaReadCompletion(&appCtxt, endpNum);
-        }
-#if FX_CFU
-    }
-#endif /* FX_CFU */
+    DBG_APP_TRACE("USB: OUT Ep 0x%x DMA ISR\r\n",endpNum);
+    Cy_HBDma_Mgr_HandleDW0Interrupt(appCtxt.pHbDmaMgrCtxt);
     portYIELD_FROM_ISR(true);
 }
 
@@ -491,16 +484,8 @@ OutEpDma_ISR (uint8_t endpNum)
  */
 void InEpDma_ISR (uint8_t endpNum)
 {
-#if FX_CFU
-    if(endpNum!=BULK_IN_ENDPOINT_2){
-#endif /* FX_CFU */
-        DBG_APP_TRACE("...ISR...InEpDma...endpNum:0x%x\r\n",endpNum);
-        Cy_USB_AppClearCpuDmaInterrupt(&appCtxt, endpNum, CY_USB_ENDP_DIR_IN);
-        /* endpoint direction and endp number together makes address */
-        Cy_USB_EchoDeviceDmaWriteCompletion(&appCtxt,0x80 | endpNum);
-#if FX_CFU
-    }
-#endif /* FX_CFU */
+    DBG_APP_TRACE("USB: IN Ep 0x%x DMA ISR\r\n",endpNum);
+    Cy_HBDma_Mgr_HandleDW1Interrupt(appCtxt.pHbDmaMgrCtxt);
     portYIELD_FROM_ISR(true);
 }
 
@@ -541,7 +526,6 @@ void Cy_USB_ConnectionDisable (cy_stc_usb_app_ctxt_t *pAppCtxt)
     pAppCtxt->usbConnectDone = false;
     pAppCtxt->devState = CY_USB_DEVICE_STATE_DISABLE;
 }
-
 
 /**
  * \name Cy_USB_AppLightDisable
@@ -643,7 +627,6 @@ int main(void)
 
     /* Initialize the application and create echo device thread. */
     Cy_USB_AppInit(&appCtxt, &usbdCtxt, pCpuDmacBase, pCpuDw0Base, pCpuDw1Base, &HBW_MgrCtxt);
-
 
     /* Invokes scheduler: Not expected to return. */
     vTaskStartScheduler();

@@ -7,7 +7,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * SPDX-License-Identifier: Apache-2.0
@@ -59,7 +59,6 @@ void Cy_USB_AppConfigureEndp(cy_stc_usb_usbd_ctxt_t *pUsbdCtxt,
  */
 void Cy_USB_AppDestroyEndpDmaParamsHs(cy_stc_usb_app_ctxt_t *pUsbApp,
                                     uint8_t *pEndpDscr);
-
 
 /**
  * \name Cy_USB_AppTerminateCpuDma

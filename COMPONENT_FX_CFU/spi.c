@@ -6,7 +6,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * SPDX-License-Identifier: Apache-2.0
@@ -90,7 +90,7 @@ static cy_en_smif_status_t Cy_SPI_WriteEnable(cy_en_flash_index_t flashIndex)
 {
     cy_en_smif_status_t status = CY_SMIF_SUCCESS;
     uint8_t statusVal = 0;
-    
+
     if(flashIndex == DUAL_SPI_FLASH)
     {
         DBG_APP_ERR("[%s]Invalid flashIndex. Access both flash memories separately\r\n", __func__);
@@ -217,7 +217,6 @@ static cy_en_gpio_status_t Cy_SPI_ConfigureSMIFPins(bool init)
     }
     status = Cy_GPIO_Pin_Init(SMIF_DATA0_PORT, SMIF_DATA0_PIN, &pinCfg);
     ASSERT_NON_BLOCK(CY_GPIO_SUCCESS == status, status);
-
 
     if(init)
     {
@@ -447,7 +446,6 @@ bool Cy_SPI_IsMemBusy(cy_en_flash_index_t flashIndex)
     return ((statusVal & CY_SPI_WIP_MASK) == CY_SPI_WIP_STATUS);
 }
 
-
 /**
  * \name Cy_SPI_Start
  * \brief Function to enable SPI block 
@@ -465,7 +463,7 @@ cy_en_smif_status_t Cy_SPI_Start(cy_stc_usb_app_ctxt_t *pAppCtxt, cy_en_flash_in
 
     memset(pAppCtxt->qspiWriteBuffer, 0, MAX_BUFFER_SIZE);
     memset(pAppCtxt->qspiReadBuffer, 0, MAX_BUFFER_SIZE);
- 
+
     /* SPI is connected to CLK_HF1. As per current clock configuration set via cybsp_init(), CLK_HF1 is connected Clock path #1 (PLL#0) at 150 MHz  */
     Cy_SysClk_ClkHfDisable(CY_SYSCLK_SPI_CLK_HF1);
     Cy_SysClk_ClkHfSetSource(CY_SYSCLK_SPI_CLK_HF1, CY_SYSCLK_CLKHF_IN_CLKPATH1);
@@ -480,7 +478,7 @@ cy_en_smif_status_t Cy_SPI_Start(cy_stc_usb_app_ctxt_t *pAppCtxt, cy_en_flash_in
 
     Cy_SMIF_SetDataSelect(SMIF_HW, CY_SMIF_SLAVE_SELECT_0, CY_SMIF_DATA_SEL0);
     Cy_SMIF_SetDataSelect(SMIF_HW, CY_SMIF_SLAVE_SELECT_1, CY_SMIF_DATA_SEL2);
-    
+
     Cy_SMIF_Enable(SMIF_HW, &spiContext);
 
     while(Cy_SPI_IsMemBusy(flashIndex)) { 
@@ -710,7 +708,7 @@ static cy_en_smif_status_t Cy_SPI_HybridSectorErase(cy_en_flash_index_t flashInd
 
     cy_en_smif_status_t status = CY_SMIF_SUCCESS;
     uint8_t addrArray[SPI_ADDRESS_BYTE_COUNT];
-    
+
     if(flashIndex == DUAL_SPI_FLASH)
     {
         DBG_APP_ERR("[%s]Invalid flashIndex. Access both flash memories separately\r\n",__func__);
@@ -721,7 +719,7 @@ static cy_en_smif_status_t Cy_SPI_HybridSectorErase(cy_en_flash_index_t flashInd
     status = Cy_SPI_WriteEnable(flashIndex);
 
     ASSERT_NON_BLOCK(status == CY_SMIF_SUCCESS, status);
-    
+
     if (status == CY_SMIF_SUCCESS)
     {
         status =  Cy_SMIF_TransmitCommand(SMIF_HW,
@@ -879,7 +877,7 @@ cy_en_smif_status_t Cy_SPI_WritePage(uint32_t address, uint8_t *txBuffer, cy_en_
                     }
                 }
             }
-            
+
         }
     }
     return status;
@@ -941,7 +939,6 @@ cy_en_smif_status_t Cy_SPI_WritePage_Partial(uint32_t address, uint8_t *txBuffer
                     }
                 }
             }
-            
         }
     }
     return status;

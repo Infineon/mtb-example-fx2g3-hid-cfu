@@ -6,7 +6,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * SPDX-License-Identifier: Apache-2.0
@@ -27,6 +27,9 @@
 #ifndef _CY_USB_ECHO_DEVICE_H_
 #define _CY_USB_ECHO_DEVICE_H_
 
+#include "cy_hbdma.h"
+#include "cy_hbdma_mgr.h"
+#include "cy_hbdma_version.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -50,11 +53,20 @@ extern "C" {
 #define CY_USB_VBUS_DETECT_PRESENT                  (0x10)
 #define CY_USB_VBUS_DETECT_ABSENT                   (0x11)
 #define CY_USB_ECHO_DEVICE_MSG_CTRL_XFER_SETUP      (0x12)
+#define CY_USB_VBUS_CHANGE_INTR                     (0x1E)
+#define CY_USB_VBUS_CHANGE_DEBOUNCED                (0x1F)
 #define MS_VENDOR_CODE                              (0xF0)
 #define CY_USB_ECHO_DEVIE_MSG_QUEUE_SIZE            (16)
 #define CY_USB_ECHO_DEVIE_MSG_SIZE                  (sizeof (cy_stc_usbd_app_msg_t))
 #define CY_USB_MAX_DATA_BUFFER_SIZE                 (1024)
 #define CY_IFX_ECHO_LOPBACK_MAX_QUEUE_SIZE          (8)
+#if APP_SRC_SNK_EN
+#define CY_IFX_ECHO_MAX_QUEUE_SIZE                  (4)
+#define CY_USB_MAX_DATA_BUFFER_SIZE                 (8192)
+#else
+#define CY_IFX_ECHO_MAX_QUEUE_SIZE                  (8)
+#define CY_USB_MAX_DATA_BUFFER_SIZE                 (1024)
+#endif /* APP_SRC_SNK_EN */
 
 /* Used by application layer based on number of endp configured.*/
 #define CY_USB_NUM_ENDP_CONFIGURED                  (2)
@@ -115,18 +127,37 @@ struct cy_stc_usb_echo_dev_ctxt_
     uint8_t activeAltSetEndps[12];
 };
 
+/**
+ * \name HbDma_Cb
+ * \brief HBDMA callback function to manage data transfers on the USB Audio Class endpoint
+ * \param handle HBDMA channel handle
+ * \param cy_en_hbdma_cb_type_t HBDMA channel type
+ * \param pbufStat fHBDMA buffer status
+ * \param userCtx user context
+ * \retval None
+ */
+void HbDma_Cb (cy_stc_hbdma_channel_t *handle,
+                          cy_en_hbdma_cb_type_t type,
+                          cy_stc_hbdma_buff_status_t *pbufStat,
+                          void *userCtx);
 
+/**
+ * \name Cy_USB_EchoDeviceTaskHandler
+ * \brief Main thread function for echo device
+ * \details  Handles data loopback, src/sink, and delegates
+ *           CFU commands to the CFU handler. 
+ * \param pTaskParam pointer to application context.
+ * \retval None
+ */
 void Cy_USB_EchoDeviceTaskHandler(void *pTaskParam);
 
-void Cy_USB_EchoDeviceDmaReadCompletion(void *pApp, uint8_t endpAddr);
-
-void Cy_USB_EchoDeviceDmaWriteCompletion(void *pApp, uint8_t endpAddr);
-
-void Cy_DevSpeedBasedfxQueueUpdate(void *pApp,
-                                   cy_en_usb_speed_t devSpeed);
-
-void Cy_USB_Endp0ReadComplete(void *pApp);
-
+/**
+ * \name Cy_USB_EchoDeviceHandleCtrlSetup
+ * \brief This function handles control command given to application
+ * \param pApp pointer to application context
+ * \param pMsg pointer to message coming from lower layer, to the application layer
+ * \retval None
+ */
 void Cy_USB_EchoDeviceHandleCtrlSetup(void *pApp, cy_stc_usbd_app_msg_t *pMsg);
 
 #if defined(__cplusplus)

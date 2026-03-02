@@ -7,7 +7,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * SPDX-License-Identifier: Apache-2.0
@@ -26,6 +26,7 @@
 *******************************************************************************/
 
 #include "FreeRTOS.h"
+#include "cfu.h"
 #include "queue.h"
 #include "task.h"
 #include "cy_pdl.h"
@@ -66,21 +67,22 @@ Cy_USB_AppConfigureEndp (cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, uint8_t *pEndpDscr)
     uint8_t maxStream = 0x00;
     uint8_t interval = 0x00;
 
-    DBG_APP_TRACE("Cy_USB_AppConfigureEndp >> \r\n");
     /* If it is not endpoint descriptor then return */
     if (!Cy_USBD_EndpDscrValid(pEndpDscr)) {
-        DBG_APP_ERR("EndpDscrNotValid \r\n");
+        DBG_APP_ERR("USB: EndpDscrNotValid \r\n");
         return;
     }
+
     Cy_USBD_GetEndpNumMaxPktDir(pEndpDscr, &endpNum, &maxPktSize, &dir);
-    
+
     if (dir) {
-        DBG_APP_TRACE("DIR-IN endpNum:%d \n", endpNum);
+        DBG_APP_TRACE("USB: DIR-IN endpNum:%d \n", endpNum);
         endpDirection = CY_USB_ENDP_DIR_IN;
     } else {
-        DBG_APP_TRACE("DIR-OUT endpNum:%d \n", endpNum);
+        DBG_APP_TRACE("USB: DIR-OUT endpNum:%d \n", endpNum);
         endpDirection = CY_USB_ENDP_DIR_OUT;
     }
+
     Cy_USBD_GetEndpType(pEndpDscr, &endpType);
 
     if ((CY_USB_ENDP_TYPE_ISO == endpType) ||
@@ -92,6 +94,7 @@ Cy_USB_AppConfigureEndp (cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, uint8_t *pEndpDscr)
         isoPkts = 
         ((*((uint8_t *)(pEndpDscr + CY_USB_ENDP_DSCR_OFFSET_MAX_PKT + 1)) & CY_USB_ENDP_ADDL_XN_MASK)
         >> CY_USB_ENDP_ADDL_XN_POS) + 1;
+
     }
 
     valid = 0x01;
@@ -107,19 +110,27 @@ Cy_USB_AppConfigureEndp (cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, uint8_t *pEndpDscr)
     endpConfig.burstSize = burstSize;
     endpConfig.streamID = (maxStream & 0x1F);
     endpConfig.interval = interval;
-    /*
-     * allowNakTillDmaRdy = true means device will send NAK
-     * till DMA setup is ready. This field is applicable to only
-     * ingress direction ie OUT transfer/OUT endpoint.
-     * For Egress ie IN transfer, this field is ignored.
-     */
-    endpConfig.allowNakTillDmaRdy = TRUE;
+
+     if (CY_USB_ENDP_TYPE_ISO == endpType)
+     {
+         endpConfig.allowNakTillDmaRdy = false;
+     }else {
+        /*
+         * allowNakTillDmaRdy = true means device will send NAK
+         * till DMA setup is ready. This field is applicable to only
+         * ingress direction ie OUT transfer/OUT endpoint.
+         * For Egress ie IN transfer, this field is ignored.
+         */
+        endpConfig.allowNakTillDmaRdy = true;
+
+    }
+
     Cy_USB_USBD_EndpConfig(pUsbdCtxt, endpConfig);
+    Cy_USBD_ResetEndp(pUsbdCtxt, endpNum, endpDirection, false);
+    Cy_SysLib_Delay(1);
 
-    DBG_APP_TRACE("Cy_USB_AppConfigureEndp << \r\n");
     return;
-}
-
+}   /* end of function */
 
 /**
  * \name Cy_USB_AppDestroyEndpDmaParamsHs
@@ -133,47 +144,51 @@ void
 Cy_USB_AppDestroyEndpDmaParamsHs (cy_stc_usb_app_ctxt_t *pUsbApp,
                                   uint8_t *pEndpDscr)
 {
-    cy_stc_app_endp_dma_set_t *pEndpDmaSet;
     uint32_t endpNum, endpDir;
     uint16_t maxPktSize;
 
-    DBG_APP_TRACE("Cy_USB_AppDestroyEndpDmaParamsHs >> \r\n");
+    DBG_APP_TRACE("USB: Destroy DMA Params \r\n");
     Cy_USBD_GetEndpNumMaxPktDir(pEndpDscr, &endpNum, &maxPktSize, &endpDir);
 
-    Cy_USB_AppInitCpuDmaIntr(endpNum,
-                             endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT),
-                             NULL);
+    if ((endpNum > 0 &&  endpNum <= CY_USB_NUM_ENDP_CONFIGURED) && (endpDir != 0))
+    {
+        /* Stop and destroy the high bandwidth DMA channel if present. To be done before AppInit is called. */
+        if (pUsbApp->pInEpDma[endpNum] != NULL)
+        {
+            DBG_APP_TRACE("Destroying EP IN HBDMA channel \r\n");
+            Cy_HBDma_Channel_Reset(pUsbApp->pInEpDma[endpNum]);
+            Cy_HBDma_Channel_Disable(pUsbApp->pInEpDma[endpNum]);
+            Cy_HBDma_Channel_Destroy(pUsbApp->pInEpDma[endpNum]);
+            pUsbApp->pInEpDma[endpNum] = NULL;
+        }
+    }
 
-    /* Updated endpoint related functions in CAL layer through USBD */
-    Cy_USBD_EnableEndp(pUsbApp->pUsbdCtxt, endpNum,
-                       endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT),
-                       false);
+    if ((endpNum > 0 &&  endpNum <= CY_USB_NUM_ENDP_CONFIGURED) && (endpDir == 0))
+    {
+        /* Stop and destroy the high bandwidth DMA channel if present. To be done before AppInit is called. */
+        if (pUsbApp->pOutEpDma[endpNum] != NULL)
+        {
+            DBG_APP_TRACE("Destroying EP OUT HBDMA channel \r\n");
+            Cy_HBDma_Channel_Reset(pUsbApp->pOutEpDma[endpNum]);
+            Cy_HBDma_Channel_Disable(pUsbApp->pOutEpDma[endpNum]);
+            Cy_HBDma_Channel_Destroy(pUsbApp->pOutEpDma[endpNum]);
+            pUsbApp->pOutEpDma[endpNum] = NULL;
+        }
+    }
+
     Cy_USBD_FlushEndp(pUsbApp->pUsbdCtxt, endpNum,
                       endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT));
     Cy_USBD_ResetEndp(pUsbApp->pUsbdCtxt, endpNum,
                       endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT), false);
+    Cy_USB_USBD_EndpSetClearStall(pUsbApp->pUsbdCtxt, (cy_en_usb_endp_dir_t)endpNum, 
+                      endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT), false);
+    Cy_USBD_EnableEndp(pUsbApp->pUsbdCtxt, endpNum,
+                       endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT),
+                       false); 
 
-    /* This function takes care of retrieving channel from endpDmaSet */
-    if (endpDir) {
-        Cy_USB_AppTerminateCpuDma(pUsbApp, endpNum, CY_USB_ENDP_DIR_IN);
-    } else {
-        Cy_USB_AppTerminateCpuDma(pUsbApp, endpNum, CY_USB_ENDP_DIR_OUT);
-    }
-
-    if (endpDir) {
-        pEndpDmaSet = &(pUsbApp->endpInDma[endpNum]);
-        memset(pEndpDmaSet, 0, sizeof(cy_stc_app_endp_dma_set_t));
-        pEndpDmaSet->channel = endpNum;
-
-    } else {
-        pEndpDmaSet = &(pUsbApp->endpOutDma[endpNum]);
-        memset(pEndpDmaSet, 0, sizeof(cy_stc_app_endp_dma_set_t));
-        pEndpDmaSet->channel = endpNum;
-    }
-    DBG_APP_TRACE("Cy_USB_AppDestroyEndpDmaParamsHs << \r\n");
+   Cy_USB_AppInitCpuDmaIntr(endpNum, endpDir ? (CY_USB_ENDP_DIR_IN):(CY_USB_ENDP_DIR_OUT),NULL);
     return;
-}
-
+}   /* end of function() */
 
 /**
  * \name Cy_USB_AppTerminateCpuDma
@@ -223,7 +238,6 @@ Cy_USB_AppTerminateCpuDma (cy_stc_usb_app_ctxt_t *pAppCtxt, uint8_t endpNum,
     return;
 }
 
-
 /**
  * \name Cy_USB_AppTerminateDma
  * \brief Function will disable associate DMA channel.
@@ -244,7 +258,7 @@ Cy_USB_AppTerminateDma (cy_stc_usb_app_ctxt_t *pAppCtxt, uint8_t endpNum,
             DBG_APP_ERR("TerminateDma: BadParam\r\n");
             return;
         }
-        
+
             /*
              * while disabling DMA channel for OUT endpoint, enable sending
              * NAK also.
@@ -267,12 +281,11 @@ Cy_USB_AppTerminateDma (cy_stc_usb_app_ctxt_t *pAppCtxt, uint8_t endpNum,
         /* If the DMA channel is already enabled, disable it. */
         pEndpDmaSet = &(pAppCtxt->endpInDma[endpNum]);
         Cy_DMA_Channel_Disable(pAppCtxt->pCpuDw1Base, pEndpDmaSet->channel);
-        
+
     }
 
     return;
 }
-
 
 /**
  * \name Cy_USB_AppFindValidInEndpNumber
@@ -286,18 +299,15 @@ Cy_USB_AppFindValidInEndpNumber (cy_stc_usb_app_ctxt_t *pUsbApp)
     uint8_t endpNum = 0x00;
     uint8_t index;
 
-    
     for (index = 0x01; index < CY_USB_NUM_ENDP_CONFIGURED; index++) {
         if  (pUsbApp->endpInDma[index].valid) {
             endpNum = index;
             break;
         }
     }
-    
 
     return (endpNum);
 }
-
 
 /**
  * \name Cy_USB_AppFindValidOutEndpNumber
@@ -310,7 +320,7 @@ Cy_USB_AppFindValidOutEndpNumber (cy_stc_usb_app_ctxt_t *pUsbApp)
 {
     uint8_t endpNum = 0x00;
     uint8_t index;
-    
+
     for (index = 0x01; index < CY_USB_NUM_ENDP_CONFIGURED; index++) {
         if  (pUsbApp->endpOutDma[index].valid) {
             endpNum = index;
@@ -319,7 +329,6 @@ Cy_USB_AppFindValidOutEndpNumber (cy_stc_usb_app_ctxt_t *pUsbApp)
     }
     return (endpNum);
 }
-
 
 /**
  * \name Cy_USB_AppIsOutEndpValidEnable
@@ -337,7 +346,6 @@ Cy_USB_AppIsOutEndpValidEnable (cy_stc_usb_app_ctxt_t *pUsbApp, uint8_t endpNum)
     return(FALSE);
 }
 
-
 /**
  * \name Cy_USB_AppIsInEndpValidEnable
  * \brief Valid bit is set or not for given IN endpoint.
@@ -353,7 +361,6 @@ Cy_USB_AppIsInEndpValidEnable (cy_stc_usb_app_ctxt_t *pUsbApp, uint8_t endpNum)
     }
     return(FALSE);
 }
-
 
 /**
  * \name Cy_USB_AppGetMaxPktSize
@@ -376,7 +383,6 @@ Cy_USB_AppGetMaxPktSize (cy_stc_usb_app_ctxt_t *pUsbApp, uint8_t endpNum,
     return (maxPktSize);
 }
 
-
 /**
  * \name Cy_USB_AppInitCpuDmaIntr
  * \brief    Function to register an ISR for a USB endpoint DMA channel and enable
@@ -391,8 +397,8 @@ Cy_USB_AppInitCpuDmaIntr (uint32_t endpNum, cy_en_usb_endp_dir_t endpDir,
                           cy_israddress userIsr)
 {
     cy_stc_sysint_t intrCfg;
-    
-    DBG_APP_TRACE("Cy_USB_AppInitCpuDmaIntr >>\r\n");
+
+    DBG_APP_TRACE("USB: Init DMA Interrupt \r\n");
 
     if ((endpNum == 0x00) && (endpDir == CY_USB_ENDP_DIR_OUT)) {
         /* To make "RcevEndp0Data" non blocking, register ISR */
@@ -406,7 +412,7 @@ Cy_USB_AppInitCpuDmaIntr (uint32_t endpNum, cy_en_usb_endp_dir_t endpDir,
         /* Only for OUT transfer interrupt registration required. */
         intrCfg.intrPriority = 5;
         intrCfg.intrSrc = (IRQn_Type)(cpuss_interrupts_dmac_1_IRQn);
-#endif
+#endif /* !CY_CPU_CORTEX_M4 */
 
        if (userIsr != NULL)  {
             /* If an ISR is provided, register it and enable the interrupt. */
@@ -419,12 +425,11 @@ Cy_USB_AppInitCpuDmaIntr (uint32_t endpNum, cy_en_usb_endp_dir_t endpDir,
 
     }
 
-    if ((endpNum > 0) && (endpNum < CY_USB_NUM_ENDP_CONFIGURED)) {
-        DBG_APP_TRACE("Registering ISR for endp:%d endpDir %d \r\n",endpNum,endpDir);
+    if ((endpNum > 0) && (endpNum <= CY_USB_NUM_ENDP_CONFIGURED)) {
 #if (!CY_CPU_CORTEX_M4)
         if (endpDir == CY_USB_ENDP_DIR_IN) {
             intrCfg.intrPriority = 3;
-            intrCfg.intrSrc = NvicMux7_IRQn;
+            intrCfg.intrSrc = NvicMux4_IRQn;
             /* DW1 channels 0 onwards are used for IN endpoints. */
             intrCfg.cm0pSrc = (cy_en_intr_t)(cpuss_interrupts_dw1_0_IRQn + endpNum);
         } else {
@@ -436,31 +441,31 @@ Cy_USB_AppInitCpuDmaIntr (uint32_t endpNum, cy_en_usb_endp_dir_t endpDir,
 #else
         intrCfg.intrPriority = 5;
         if (endpDir == CY_USB_ENDP_DIR_IN) {
-            DBG_APP_TRACE("DIR-IN \r\n");
+            DBG_APP_TRACE("USB: DIR-IN \r\n");
             /* DW1 channels 0 onwards are used for IN endpoints. */
             intrCfg.intrSrc =
                           (IRQn_Type)(cpuss_interrupts_dw1_0_IRQn + endpNum);
         } else {
             /* DW0 channels 0 onwards are used for OUT endpoints. */
-            DBG_APP_TRACE("DIR-OUT \r\n");
+            DBG_APP_TRACE("USB: DIR-OUT \r\n");
             intrCfg.intrSrc =
                           (IRQn_Type)(cpuss_interrupts_dw0_0_IRQn + endpNum);
         }
-#endif /* (CY_CPU_CORTEX_M4) */
+#endif /* (!CY_CPU_CORTEX_M4) */
 
         if (userIsr != NULL)  {
             /* If an ISR is provided, register it and enable the interrupt. */
-            DBG_APP_TRACE("Registering ISR \r\n");
+            DBG_APP_TRACE("USB: Registering ISR \r\n");
             Cy_SysInt_Init(&intrCfg, userIsr);
             NVIC_EnableIRQ(intrCfg.intrSrc);
         } else {
             /* ISR is NULL. Disable the interrupt. */
-            DBG_APP_TRACE("Disabling ISR\r\n");
+            DBG_APP_TRACE("USB: Disabling ISR\r\n");
             NVIC_DisableIRQ(intrCfg.intrSrc);
         }
     }
-    DBG_APP_TRACE("Cy_USB_AppInitCpuDmaIntr << \r\n");
-}
+
+}   /* end of function. */
 
 /**
  * \name Cy_USB_AppClearCpuDmaInterrupt
@@ -514,19 +519,17 @@ Cy_USB_AppHandleSetCfgCommon (cy_stc_usb_app_ctxt_t *pAppCtxt,
     uint8_t *pActiveCfg, *pIntfDscr, *pEndpDscr;
     uint8_t index, numOfIntf, numOfEndp;
 
-    DBG_APP_TRACE("Cy_USB_AppHandleSetCfgCommon >>\r\n");
+    DBG_APP_TRACE("USB: Set config common \r\n");
 
     devSpeed = Cy_USBD_GetDeviceSpeed(pUsbdCtxt);
 
     pAppCtxt->devSpeed = devSpeed;
-    DBG_APP_INFO("SetCfg:devSpeed:%d\r\n",devSpeed);
 
     /* Get setup packet from message. */
     pSetupReq = (cy_stc_usb_setup_req_t *)(&(pMsg->data[0]));
     /* Disable DMA if Set Config request on Config index 0 is received */
     if(pSetupReq->wValue == 0) {
-        /* TBD: Device should move to adress state so unconfigure everything. */
-        DBG_APP_INFO("Set CFG 0\r\n");
+        DBG_APP_ERR("USB: Set CFG 0\r\n");
         return CY_USB_APP_STATUS_FAILURE;
     }
 
@@ -537,30 +540,28 @@ Cy_USB_AppHandleSetCfgCommon (cy_stc_usb_app_ctxt_t *pAppCtxt,
     pActiveCfg = Cy_USB_USBD_GetActiveCfgDscr(pUsbdCtxt);
     if (!pActiveCfg) {
         /* Set config should be called when active config value > 0x00. */
-        DBG_APP_ERR("Active config not available\r\n");
+        DBG_APP_ERR("USB: Active config not available\r\n");
         return CY_USB_APP_STATUS_FAILURE;
     }
 
     numOfIntf = Cy_USBD_FindNumOfIntf(pActiveCfg);
     if (numOfIntf == 0x00) {
-        DBG_APP_ERR("numOfIntf-0x00\r\n");
+        DBG_APP_ERR("USB: No. of intf-0x00\r\n");
         return CY_USB_APP_STATUS_FAILURE;
     }
-    DBG_APP_TRACE("NumOfIntf:%d\r\n", numOfIntf);
 
     for (index = 0x00; index < numOfIntf; index++) {
         /* During Set Config command always altSetting 0 will be active. */
         pIntfDscr = Cy_USBD_GetIntfDscr(pUsbdCtxt, index, 0x00);
         if (pIntfDscr == NULL) {
-            DBG_APP_INFO("pIntfDscrNull\r\n");
+            DBG_APP_ERR("USB: NULL intf dscr\r\n");
             return CY_USB_APP_STATUS_FAILURE;
         }
 
         numOfEndp = Cy_USBD_FindNumOfEndp(pIntfDscr);
-        DBG_APP_TRACE("numOfEndp:%d\r\n", numOfEndp);
         if (numOfEndp == 0x00) {
             /* If current interface has 0 endpoint then move to next intf */
-            DBG_APP_ERR("numOfEndp-0x00\r\n");
+            DBG_APP_ERR("USB: No. of endpoint-0x00\r\n");
             continue;
         }
 
@@ -572,15 +573,14 @@ Cy_USB_AppHandleSetCfgCommon (cy_stc_usb_app_ctxt_t *pAppCtxt,
             numOfEndp--;
 
             pEndpDscr = (pEndpDscr + (*(pEndpDscr + CY_USB_DSCR_OFFSET_LEN)));
-            
+
         }
     }
-    DBG_APP_TRACE("All endpoint Configured\r\n");
+
+    DBG_APP_TRACE("USB: All endpoints configured\r\n");
 
     pAppCtxt->prevDevState = CY_USB_DEVICE_STATE_CONFIGURED;
     pAppCtxt->devState = CY_USB_DEVICE_STATE_CONFIGURED;
 
-    DBG_APP_TRACE("Cy_USB_AppHandleSetCfgCommon <<\r\n");
     return CY_USB_APP_STATUS_SUCCESS;
-}
-
+}   /* end of function. */

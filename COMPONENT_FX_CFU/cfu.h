@@ -6,7 +6,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * Changes: Declared custom functions, defined custom structs and macros
@@ -75,7 +75,6 @@
 #include "cy_flash.h"
 #include "cy_fault_handlers.h"
 #include "cy_debug.h"
-
 
 /* Application includes */
 #include "usb_app.h"

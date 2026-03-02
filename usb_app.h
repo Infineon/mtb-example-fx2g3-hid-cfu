@@ -6,7 +6,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * SPDX-License-Identifier: Apache-2.0
@@ -32,6 +32,7 @@
 #include "task.h"
 #include "timers.h"
 #include "cy_usbhs_dw_wrapper.h"
+#include "usb_echo_device.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -100,9 +101,13 @@ struct cy_stc_usb_app_ctxt_
     cy_en_usb_speed_t devSpeed;
     cy_en_usb_enum_method_t enumMethod;
 
-    cy_stc_app_endp_dma_set_t endpInDma[16];
-    cy_stc_app_endp_dma_set_t endpOutDma[16];
-    uint8_t intfAltSetEndp[4][4];    /* Max 4INTF AND EACH INTERFACE 4 alt setting */ 
+    cy_stc_app_endp_dma_set_t endpInDma[CY_USB_NUM_ENDP_CONFIGURED+1];
+    cy_stc_app_endp_dma_set_t endpOutDma[CY_USB_NUM_ENDP_CONFIGURED+1];
+    uint8_t intfAltSetEndp[4][4];    /* Max 4INTF AND EACH INTERFACE 4 alt setting */
+
+    cy_stc_hbdma_channel_t *pInEpDma[CY_USB_NUM_ENDP_CONFIGURED+1];       
+    cy_stc_hbdma_channel_t *pOutEpDma[CY_USB_NUM_ENDP_CONFIGURED+1];  
+
     /* Next three are related to central DMA */
     DMAC_Type *pCpuDmacBase;
     DW_Type *pCpuDw0Base;
@@ -123,6 +128,13 @@ struct cy_stc_usb_app_ctxt_
     bool usbConnected;                                              /** Whether USB connection is enabled. */
     /* USB connection status */
     bool usbConnectDone;
+
+    bool vbusChangeIntr;                        /** VBus change interrupt received flag. */
+    TimerHandle_t vbusDebounceTimer;            /** VBus change debounce timer handle. */
+
+    bool          isLpmEnabled;                         /* Whether LPM transitions are enabled. */
+    uint32_t      lpmEnableTime;                        /* Timestamp at which LPM should be re-enabled. */
+
     uint8_t *qspiWriteBuffer;
     uint8_t *qspiReadBuffer;
     uint8_t glpassiveSerialMode;
@@ -134,14 +146,8 @@ void  *Cy_USB_EchoDeviceInit(cy_stc_usb_app_ctxt_t *pAppCtxt);
 void Cy_USB_AppSetupEndpDmaParamsHs(cy_stc_usb_app_ctxt_t *pUsbApp,
                                   uint8_t *pEndpDscr);
 
-void Cy_USB_AppQueueRead(cy_stc_usb_app_ctxt_t *pAppCtxt, uint8_t endpNumber,
-                         uint8_t *pBuffer, uint16_t dataSize);
-
 uint16_t Cy_USB_AppReadShortPacket(cy_stc_usb_app_ctxt_t *pAppCtxt,
                                    uint8_t endpNumber, uint16_t pktSize);
-
-void Cy_USB_AppQueueWrite(cy_stc_usb_app_ctxt_t *pAppCtxt, uint8_t endpNumber,
-                          uint8_t *pBuffer, uint16_t dataSize);
 
 void Cy_USB_AppInit (cy_stc_usb_app_ctxt_t *pAppCtxt,
         cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, DMAC_Type *pCpuDmacBase,
@@ -198,7 +204,6 @@ bool Cy_USB_ConnectionEnable(cy_stc_usb_app_ctxt_t *pAppCtxt);
 void Cy_USB_ConnectionDisable(cy_stc_usb_app_ctxt_t *pAppCtxt);
 
 void Cy_USB_AppLightDisable(cy_stc_usb_app_ctxt_t *pAppCtxt);
-
 
 void Cy_USB_AppInitEndpCpuDmaDscrConfig(cy_stc_dma_descriptor_config_t *pEndpCpuDmaDscrConfig,
                                         uint32_t *pSrcAddr, uint32_t *pDstAddr, uint32_t endpSize,

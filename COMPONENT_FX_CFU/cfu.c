@@ -6,7 +6,7 @@
 *
 *******************************************************************************
 * \copyright
-* (c) (2025), Cypress Semiconductor Corporation (an Infineon company) or
+* (c) (2026), Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.
 *
 * Changes: Implemented functions to perform CFU on the EZ-USB FX2G3 device
@@ -59,6 +59,8 @@
 #include "cy_smif.h"
 #include "spi.h"
 #include <string.h>
+
+#include "cy_hbdma_mgr.h"
 
 /* SPI Flash Metadata */
 spi_meta_t spi_meta_new;
@@ -116,7 +118,7 @@ bool Cy_USB_HandleHidRequests(cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, cy_stc_usb_app_
 {
     bool isHandled = false;
     uint8_t reportID = wValue & 0xff;
-    
+
     if(bRequest == GET_HID_REPORT)
     {
         CFU_LOG_TRACE_MSG("Report ID: 0d%d", reportID);
@@ -259,7 +261,7 @@ void Cy_CFU_ProcessCFWUOffer(cy_cfu_offer_command_t* pCommand,
     uint8_t componentId = pCommand->componentInfo.componentId;
     CFU_LOG_MESSAGE("Token: %d", token);
     CFU_LOG_MESSAGE("Component ID: %d", componentId);
-    
+
     bool return_flag = false;
 
     /* CFU Protocol document
@@ -460,7 +462,7 @@ void Cy_CFU_ProcessCFWUGetFWVersion(cy_cfu_get_version_response_t* pResponse)
     pResponse->header.fwUpdateRevision = CPFWU_REVISION;
 
     pResponse->header.componentCount = cfu_status.deviceCount;
-    
+
     pResponse->versionAndProductInfoBlob[5] = COMPOSITE_DEVICE;
     pResponse->versionAndProductInfoBlob[3] = CY_FX_DWORD_GET_BYTE3(cfu_status.version);
     pResponse->versionAndProductInfoBlob[2] = CY_FX_DWORD_GET_BYTE2(cfu_status.version);
@@ -484,10 +486,22 @@ cy_en_usbd_ret_code_t Cy_USB_SendStatusBulkEp(cy_stc_usb_app_ctxt_t *pUsbApp, ui
 
     Cy_USBD_GetUSBLinkActive(pUsbApp->pUsbdCtxt);
 
-    uint8_t InEndpt = BULK_IN_ENDPOINT_2;
+    cy_stc_hbdma_buff_status_t BufStat;
+    cy_en_hbdma_mgr_status_t status = Cy_HBDma_Channel_GetBuffer(pUsbApp->pInEpDma[BULK_IN_ENDPOINT_2], &BufStat);
 
-    Cy_USB_AppQueueWrite(pUsbApp, InEndpt, (uint8_t *)(data), len);
-    return CY_USBD_STATUS_SUCCESS;
+    if(status){
+        return CY_USBD_STATUS_FAILURE;
+    } else {
+        (&BufStat)->count = len;
+        memcpy((uint8_t*)BufStat.pBuffer, (uint8_t*)data, (&BufStat)->count);
+        status = Cy_HBDma_Channel_CommitBuffer(pUsbApp->pInEpDma[2], &BufStat);
+        if(status){
+            CFU_LOG_ERROR("Cy_HBDma_Channel_CommitBuffer failed: %d", status);
+            return CY_USBD_STATUS_FAILURE;
+        } else {
+            return CY_USBD_STATUS_SUCCESS;
+        }
+    }
 }
 
 /**
@@ -530,7 +544,7 @@ uint8_t Cy_CFU_HandleCFUVersionRequest(cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, cy_stc
         /* Just after the metadata, check if the bitstream contains "Version" string preceeding version information */
         if((fpga_metadata.validity & V_STRING_PRESENT_Msk) == V_STRING_PRESENT){
             Cy_CFU_ExtSPIFlash_Read(0x26, version_ascii_codes_array, 16, (uint8_t)SPI_FLASH_0);
-        
+
         /* If there is no "Version" string present, version info is expected to start 8 Bytes prior */
         } else {
             Cy_CFU_ExtSPIFlash_Read(0x18, version_ascii_codes_array, 16, (uint8_t)SPI_FLASH_0);
@@ -625,6 +639,7 @@ uint8_t Cy_CFU_HandleCFUOfferOpUsageReq(cy_stc_usb_usbd_ctxt_t *pUsbdCtxt, cy_st
         memcpy((cfuBuffer+SIZE_REPORT_ID), (uint8_t*)&pResponse, sizeof(cy_cfu_offer_response_t));
 
         retStatus = Cy_USB_SendStatusBulkEp(pUsbApp,(uint8_t*)buf,responseSize);
+
     }
     return retStatus;
 }
@@ -774,16 +789,16 @@ uint32_t Cy_CFU_SPI_Start(cy_stc_usb_app_ctxt_t *pAppCtxt){
  * \retval status
  */
 uint32_t Cy_CFU_ExtSPIFlash_Prepare(uint8_t componentId){
-    CFU_LOG_MESSAGE("Preparing for FW Update")
+    CFU_LOG_MESSAGE("Preparing Flash for FW Update")
     uint8_t status = 0;
-    
+
     /* Initialize Flash */
     if((Cy_CFU_SPI_FlashInit(SPI_FLASH_0, false, false)==CY_SMIF_SUCCESS)){
         CFU_LOG_MESSAGE("Flash Init Success");
     } else {
         CFU_LOG_ERROR("Flash Init Fail");
     }
-    
+
     /* Erase Sectors from addresses 0x00000 through 0xF0000 */
     uint16_t local_wIndex = 0x0;
     while(local_wIndex<=0xF){
@@ -791,17 +806,19 @@ uint32_t Cy_CFU_ExtSPIFlash_Prepare(uint8_t componentId){
         uint32_t spiAddress = sector * CY_APP_SPI_FLASH_ERASE_SIZE;
         if(!(Cy_SPI_SectorErase(SPI_FLASH_0, spiAddress) == CY_SMIF_SUCCESS)){
             CFU_LOG_ERROR("Sector from 0x%x, Erase failed!", spiAddress);
+            return !CY_SMIF_SUCCESS;
         }
         local_wIndex+=0x1;
     }
     CFU_LOG_MESSAGE("Flash Erase Success");
 
-    CFU_LOG_MESSAGE("Completed Preparing for FW Update");
+    CFU_LOG_MESSAGE("Flash prepared for FW Update");
     return (uint32_t)status;
 }
 
 /**
  * \name Cy_CFU_SPI_ConvertMetadataBytes
+ * \brief Convert metadata struct to raw Bytes and vice versa
  * \param metadata Metadata struct for metdata info
  * \param buffer Array for raw Bytes
  * \param mode  true for Metadata to Bytes
@@ -816,15 +833,15 @@ void Cy_CFU_SPI_ConvertMetadataBytes(spi_meta_t* restrict metadata, uint8_t* buf
         /* start signature */
         memcpy(address, &(metadata->start_sig), sizeof(metadata->start_sig));
         address += sizeof(metadata->start_sig);
-        
+
         /* fw_checksum */
         memcpy(address, &(metadata->fw_checksum), sizeof(metadata->fw_checksum));
         address += sizeof(metadata->fw_checksum);
-        
+
         /* fw_offset */
         memcpy(address, &(metadata->fw_offset), sizeof(metadata->fw_offset));
         address += sizeof(metadata->fw_offset);
-        
+
         /* validity */
         memcpy(address, &(metadata->validity), sizeof(metadata->validity));
         address += sizeof(metadata->validity);
@@ -832,7 +849,7 @@ void Cy_CFU_SPI_ConvertMetadataBytes(spi_meta_t* restrict metadata, uint8_t* buf
         /* reserved */
         memcpy(address, &(metadata->reserved), sizeof(metadata->reserved));
         address += sizeof(metadata->reserved);
-        
+
         /* end signature */
         memcpy(address, &(metadata->end_sig), sizeof(metadata->end_sig));
         address += sizeof(metadata->end_sig);
@@ -869,6 +886,12 @@ void Cy_CFU_SPI_ConvertMetadataBytes(spi_meta_t* restrict metadata, uint8_t* buf
     }
 }
 
+/**
+ * \name gen_metadata
+ * \brief Generate metadata of image to be written onto SPI flash
+ * \param buffer Array to hold the raw Bytes of metadata
+ * \retval None
+ */
 void gen_metadata(uint8_t* buffer){
     /* Prepare metadata to write onto SPI flash */
     spi_meta_new.start_sig[0] = 'I';                /* Start Signature "IFX#" */
@@ -887,7 +910,7 @@ void gen_metadata(uint8_t* buffer){
     spi_meta_new.end_sig[3] = '$';
 
     Cy_CFU_SPI_ConvertMetadataBytes(&spi_meta_new, buffer, true);
-    CFU_LOG_MESSAGE("Prepared Metadata");
+    CFU_LOG_MESSAGE("Flash image metadata generated");
 
 }
 
@@ -940,7 +963,7 @@ uint32_t Cy_CFU_ExtSPIFlash_Write(uint32_t offset, uint8_t* pData, uint8_t lengt
     if(length>overflow){
         /* Copy the contents of pData into the buffer */
         memcpy(sfBuffer+recdB, pData, length-overflow);
-        
+
         /* Increment the received byte count */
         recdB += length-overflow;
 
@@ -951,7 +974,7 @@ uint32_t Cy_CFU_ExtSPIFlash_Write(uint32_t offset, uint8_t* pData, uint8_t lengt
     } else {
         /* Copy the contents of pData into the buffer */
         memcpy(sfBuffer+recdB, pData, length);
-        
+
         /* Increment the received byte count */
         recdB += length;
 
@@ -966,7 +989,7 @@ uint32_t Cy_CFU_ExtSPIFlash_Write(uint32_t offset, uint8_t* pData, uint8_t lengt
         memset((sfBuffer+recdB), 0, SPI_FLASH_PAGE_SIZE-recdB);
         recdB=SPI_FLASH_PAGE_SIZE;
     }
- 
+
     /* If page size (SPI_FLASH_PAGE_SIZE) worth of data is ready in buffer, write page */
     if(recdB==SPI_FLASH_PAGE_SIZE) {
         if(!Cy_SPI_WritePage(cfu_extspiflash_addr, sfBuffer, SPI_FLASH_0)){
@@ -1007,7 +1030,7 @@ uint32_t Cy_CFU_ExtSPIFlash_Write(uint32_t offset, uint8_t* pData, uint8_t lengt
         if(rewrite_status!=CY_SMIF_SUCCESS){
             CFU_LOG_ERROR("FAILED to rewrite first page, status: 0x%x", rewrite_status);
         } else {
-            CFU_LOG_MESSAGE("Updated Image Validity: %s",
+            CFU_LOG_TRACE_MSG("Updated Image Validity: %s",
                 (&spi_meta_new)->validity==VALID_IMG?"VALID_IMG":
                 ((&spi_meta_new)->validity==V_STRING_PRESENT?"V_STRING_PRESENT":"INVALID_IMAGE"));
         }
