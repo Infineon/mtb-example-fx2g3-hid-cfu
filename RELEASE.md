@@ -1,4 +1,4 @@
-# EZ-USB&trade; FX2G3: HID-CFU application 1.0.1
+# EZ-USB&trade; FX2G3: HID-CFU application 1.0.2
 
 ## What's Included?
 
@@ -6,7 +6,7 @@ Refer to the [README.md](./README.md).
 
 ## Defect Fixes
 
-* Updated to use new DataWire APIs from USBFXStack
+* Minor fixes in linker scripts used with ARM&reg; Compiler
 
 ## Supported Software and Tools
 
@@ -16,7 +16,7 @@ This version of the application is compatible with the following software and to
 | :---                                                     | :----:  |
 | ModusToolbox&trade; Software                             | 3.5.0   |
 | CAT1A Peripheral Driver Library                          | 3.16.0  |
-| USBFXStack Middleware Library                            | 1.3.1   |
+| USBFXStack Middleware Library                            | 1.3.3   |
 | FreeRTOS&trade; for Infineon MCUs                        | 10.5.002|
 | GNU Arm&reg; Embedded Compiler                           | 14.2.1  |
 | Arm&reg; Compiler                                        | 6.22    |

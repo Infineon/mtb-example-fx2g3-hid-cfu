@@ -10,7 +10,7 @@ This code example has two sub components, intended to be operated in a mutually 
 
 [View this README on GitHub.](https://github.com/Infineon/mtb-example-fx2g3-hid-cfu)
 
-[Provide feedback on this code example.](https://yourvoice.infineon.com/jfe/form/SV_1NTns53sK2yiljn?Q_EED=eyJVbmlxdWUgRG9jIElkIjoiQ0UyNDEwNzQiLCJTcGVjIE51bWJlciI6IjAwMi00MTA3NCIsIkRvYyBUaXRsZSI6IkVaLVVTQiZ0cmFkZTsgRlgyRzM6IEhJRC1DRlUgYXBwbGljYXRpb24iLCJyaWQiOiJzdW1pdC5rdW1hckBpbmZpbmVvbi5jb20iLCJEb2MgdmVyc2lvbiI6IjEuMC4xIiwiRG9jIExhbmd1YWdlIjoiRW5nbGlzaCIsIkRvYyBEaXZpc2lvbiI6Ik1DRCIsIkRvYyBCVSI6IldJUkVEIiwiRG9jIEZhbWlseSI6IkhTTFNfVVNCIn0=)
+[Provide feedback on this code example.](https://yourvoice.infineon.com/jfe/form/SV_1NTns53sK2yiljn?Q_EED=eyJVbmlxdWUgRG9jIElkIjoiQ0UyNDEwNzQiLCJTcGVjIE51bWJlciI6IjAwMi00MTA3NCIsIkRvYyBUaXRsZSI6IkVaLVVTQiZ0cmFkZTsgRlgyRzM6IEhJRC1DRlUgYXBwbGljYXRpb24iLCJyaWQiOiJzdW1pdC5rdW1hckBpbmZpbmVvbi5jb20iLCJEb2MgdmVyc2lvbiI6IjEuMC4yIiwiRG9jIExhbmd1YWdlIjoiRW5nbGlzaCIsIkRvYyBEaXZpc2lvbiI6Ik1DRCIsIkRvYyBCVSI6IldJUkVEIiwiRG9jIEZhbWlseSI6IkhTTFNfVVNCIn0=)
 
 
 ## Requirements
@@ -211,7 +211,7 @@ This application's functionality can be customized by setting variables in *Make
 
 - Run the `make build CORE=CM0P` command or set the variable in *Makefile* to compile and generate the binary for the Cortex&reg; M0+ core. By default, `CORE` is set as `CM4` and the binary is compiled and generated for the Cortex&reg; M4 core
 
-- Choose between the **Arm&reg; Compiler** or the **GNU Arm&reg; Embedded Compiler** build toolchains by setting the `TOOLCHAIN` variable in *Makefile* to `ARM` or `GCC_ARM` respectively. If you set it to `ARM`, ensure to set `CY_ARM_COMPILER_DIR` as a make variable or environment variable, pointing to the path of the compiler's root directory
+- Choose between the **Arm&reg; Compiler** or the **GNU Arm&reg; Embedded Compiler** build toolchains by setting the `TOOLCHAIN` variable in *Makefile* to `ARM` or `GCC_ARM` respectively. If you set it to `ARM`, ensure to set `CY_COMPILER_ARM_DIR` as a make variable or environment variable, pointing to the path of the compiler's root directory
 
 By default, the application is configured for **Data Loopback** mode and to make a USBHS data connection. Additional settings can be configured through macros specified by the `DEFINES` variable in *Makefile*:
 
@@ -504,6 +504,7 @@ Document title: *CE241074* – *EZ-USB&trade; FX2G3: HID-CFU application*
  ------- | ---------------------
  1.0.0   | New code example
  1.0.1   | Updated to use new DataWire APIs from USBFXStack
+ 1.0.2   | Minor fixes in linker scripts used with ARM&reg; Compiler
 <br>
 
 
